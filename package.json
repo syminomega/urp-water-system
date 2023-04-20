@@ -1,9 +1,9 @@
 {
   "name": "com.symin.water-system",
   "description": "A water system for URP.",
-  "version": "1.5.0-preview.1",
+  "version": "1.5.0-preview.2",
   "unity": "2021.3",
-  "displayName": "Boat Attack Water System",
+  "displayName": "URP Water System",
   "dependencies": {
     "com.unity.mathematics": "1.2.0",
     "com.unity.burst": "1.2.3",
