@@ -16,11 +16,11 @@ namespace WaterSystem
             private readonly ShaderTagId m_WaterFXShaderTag = new ShaderTagId("WaterFX");
             private readonly Color m_ClearColor = new Color(0.0f, 0.5f, 0.5f, 0.5f); //r = foam mask, g = normal.x, b = normal.z, a = displacement
             private FilteringSettings m_FilteringSettings;
-            private RenderTargetHandle m_WaterFX = RenderTargetHandle.CameraTarget;
+            private RTHandle m_WaterFX = RTHandles.Alloc(Shader.GetGlobalTexture("_WaterFXMap"));
 
             public WaterFxPass()
             {
-                m_WaterFX.Init("_WaterFXMap");
+                //m_WaterFX.Init("_WaterFXMap");
                 // only wanting to render transparent objects
                 m_FilteringSettings = new FilteringSettings(RenderQueueRange.transparent);
             }
@@ -30,14 +30,25 @@ namespace WaterSystem
             {
                 // no need for a depth buffer
                 cameraTextureDescriptor.depthBufferBits = 0;
-                // Half resolution
-                cameraTextureDescriptor.width /= 2;
-                cameraTextureDescriptor.height /= 2;
-                // default format TODO research usefulness of HDR format
                 cameraTextureDescriptor.colorFormat = RenderTextureFormat.Default;
-                // get a temp RT for rendering into
-                cmd.GetTemporaryRT(m_WaterFX.id, cameraTextureDescriptor, FilterMode.Bilinear);
-                ConfigureTarget(m_WaterFX.Identifier());
+                
+                // Half resolution (RTHandle will handle this)
+                // cameraTextureDescriptor.width /= 2;
+                // cameraTextureDescriptor.height /= 2;
+
+                RenderingUtils.ReAllocateIfNeeded(
+                    ref m_WaterFX,
+                    Vector2.one * 0.5f, 
+                    cameraTextureDescriptor,
+                    FilterMode.Bilinear,
+                    TextureWrapMode.Clamp,
+                    false,
+                    1,
+                    0f,
+                    "_WaterFXMap"
+                );
+                
+                ConfigureTarget(m_WaterFX);
                 // clear the screen with a specific color for the packed data
                 ConfigureClear(ClearFlag.Color, m_ClearColor);
             }
@@ -64,7 +75,8 @@ namespace WaterSystem
             public override void OnCameraCleanup(CommandBuffer cmd) 
             {
                 // since the texture is used within the single cameras use we need to cleanup the RT afterwards
-                cmd.ReleaseTemporaryRT(m_WaterFX.id);
+                //cmd.ReleaseTemporaryRT(m_WaterFX.id);
+                m_WaterFX?.Release();
             }
         }
 
