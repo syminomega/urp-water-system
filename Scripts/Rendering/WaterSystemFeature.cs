@@ -12,15 +12,24 @@ namespace WaterSystem
         class WaterFxPass : ScriptableRenderPass
         {
             private const string k_RenderWaterFXTag = "Render Water FX";
+            private const string k_WaterFXMapName = "_WaterFXMap";
+            private static readonly int k_WaterFXMapId = Shader.PropertyToID(k_WaterFXMapName);
             private ProfilingSampler m_WaterFX_Profile = new ProfilingSampler(k_RenderWaterFXTag);
             private readonly ShaderTagId m_WaterFXShaderTag = new ShaderTagId("WaterFX");
             private readonly Color m_ClearColor = new Color(0.0f, 0.5f, 0.5f, 0.5f); //r = foam mask, g = normal.x, b = normal.z, a = displacement
             private FilteringSettings m_FilteringSettings;
+#if UNITY_2022_1_OR_NEWER
+            private RTHandle m_WaterFX;
+            private RenderTextureDescriptor m_WaterFXDescriptor;
+#else
             private RenderTargetHandle m_WaterFX = RenderTargetHandle.CameraTarget;
+#endif
 
             public WaterFxPass()
             {
-                m_WaterFX.Init("_WaterFXMap");
+#if !UNITY_2022_1_OR_NEWER
+                m_WaterFX.Init(k_WaterFXMapName);
+#endif
                 // only wanting to render transparent objects
                 m_FilteringSettings = new FilteringSettings(RenderQueueRange.transparent);
             }
@@ -30,14 +39,28 @@ namespace WaterSystem
             {
                 // no need for a depth buffer
                 cameraTextureDescriptor.depthBufferBits = 0;
+#if UNITY_2022_1_OR_NEWER
+                cameraTextureDescriptor.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+#endif
                 // Half resolution
                 cameraTextureDescriptor.width /= 2;
                 cameraTextureDescriptor.height /= 2;
                 // default format TODO research usefulness of HDR format
                 cameraTextureDescriptor.colorFormat = RenderTextureFormat.Default;
                 // get a temp RT for rendering into
+#if UNITY_2022_1_OR_NEWER
+                if (m_WaterFX == null || !m_WaterFXDescriptor.Equals(cameraTextureDescriptor))
+                {
+                    m_WaterFX?.Release();
+                    m_WaterFX = RTHandles.Alloc(cameraTextureDescriptor, FilterMode.Bilinear, name: k_WaterFXMapName);
+                    m_WaterFXDescriptor = cameraTextureDescriptor;
+                }
+                ConfigureTarget(m_WaterFX);
+                cmd.SetGlobalTexture(k_WaterFXMapId, m_WaterFX.nameID);
+#else
                 cmd.GetTemporaryRT(m_WaterFX.id, cameraTextureDescriptor, FilterMode.Bilinear);
                 ConfigureTarget(m_WaterFX.Identifier());
+#endif
                 // clear the screen with a specific color for the packed data
                 ConfigureClear(ClearFlag.Color, m_ClearColor);
             }
@@ -63,8 +86,18 @@ namespace WaterSystem
 
             public override void OnCameraCleanup(CommandBuffer cmd) 
             {
+#if !UNITY_2022_1_OR_NEWER
                 // since the texture is used within the single cameras use we need to cleanup the RT afterwards
                 cmd.ReleaseTemporaryRT(m_WaterFX.id);
+#endif
+            }
+
+            public void Dispose()
+            {
+#if UNITY_2022_1_OR_NEWER
+                m_WaterFX?.Release();
+                m_WaterFX = null;
+#endif
             }
         }
 
@@ -182,6 +215,11 @@ namespace WaterSystem
         {
             renderer.EnqueuePass(m_WaterFxPass);
             renderer.EnqueuePass(m_CausticsPass);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            m_WaterFxPass?.Dispose();
         }
 
         /// <summary>
