@@ -249,10 +249,15 @@ half4 WaterFragment(WaterVertexOutput IN) : SV_Target
 	// Foam lighting
 	half3 foam = foamMask.xxx * (mainLight.shadowAttenuation * mainLight.color + GI);
 
-    BRDFData brdfData;
-    half alpha = 1;
-    InitializeBRDFData(half3(0, 0, 0), 0, half3(1, 1, 1), 0.95, alpha, brdfData);
+	BRDFData brdfData;
+	half alpha = 1;
+	InitializeBRDFData(half3(0, 0, 0), 0, half3(1, 1, 1), 0.95, alpha, brdfData);
+#if UNITY_VERSION >= 600000
+	bool specularHighlightsOff = false;
+	half3 spec = DirectBDRF(brdfData, IN.normal, mainLight.direction, IN.viewDir, specularHighlightsOff) * shadow * mainLight.color;
+#else
 	half3 spec = DirectBDRF(brdfData, IN.normal, mainLight.direction, IN.viewDir) * shadow * mainLight.color;
+#endif
 #ifdef _ADDITIONAL_LIGHTS
     uint pixelLightCount = GetAdditionalLightsCount();
     for (uint lightIndex = 0u; lightIndex < pixelLightCount; ++lightIndex)

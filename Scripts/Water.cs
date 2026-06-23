@@ -353,6 +353,10 @@ namespace WaterSystem
             additionalCamData.renderShadows = false;
             additionalCamData.requiresColorOption = CameraOverrideOption.Off;
             additionalCamData.requiresDepthOption = CameraOverrideOption.Off;
+            additionalCamData.renderPostProcessing = false;
+            additionalCamData.volumeLayerMask = 0;
+            additionalCamData.antialiasing = AntialiasingMode.None;
+            additionalCamData.allowXRRendering = false;
 
             var t = _depthCam.transform;
             var depthExtra = 4.0f;

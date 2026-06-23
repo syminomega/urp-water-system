@@ -1,5 +1,8 @@
 ﻿using UnityEngine;
 using UnityEngine.Rendering;
+#if UNITY_6000_0_OR_NEWER
+using UnityEngine.Rendering.RenderGraphModule;
+#endif
 using UnityEngine.Rendering.Universal;
 
 namespace WaterSystem
@@ -12,15 +15,31 @@ namespace WaterSystem
         class WaterFxPass : ScriptableRenderPass
         {
             private const string k_RenderWaterFXTag = "Render Water FX";
+            private const string k_WaterFXMapName = "_WaterFXMap";
+            private static readonly int k_WaterFXMapId = Shader.PropertyToID(k_WaterFXMapName);
             private ProfilingSampler m_WaterFX_Profile = new ProfilingSampler(k_RenderWaterFXTag);
             private readonly ShaderTagId m_WaterFXShaderTag = new ShaderTagId("WaterFX");
             private readonly Color m_ClearColor = new Color(0.0f, 0.5f, 0.5f, 0.5f); //r = foam mask, g = normal.x, b = normal.z, a = displacement
             private FilteringSettings m_FilteringSettings;
+#if UNITY_2022_1_OR_NEWER
+            private RTHandle m_WaterFX;
+            private RenderTextureDescriptor m_WaterFXDescriptor;
+#else
             private RenderTargetHandle m_WaterFX = RenderTargetHandle.CameraTarget;
+#endif
+
+#if UNITY_6000_0_OR_NEWER
+            class PassData
+            {
+                public RendererListHandle rendererListHandle;
+            }
+#endif
 
             public WaterFxPass()
             {
-                m_WaterFX.Init("_WaterFXMap");
+#if !UNITY_2022_1_OR_NEWER
+                m_WaterFX.Init(k_WaterFXMapName);
+#endif
                 // only wanting to render transparent objects
                 m_FilteringSettings = new FilteringSettings(RenderQueueRange.transparent);
             }
@@ -30,14 +49,28 @@ namespace WaterSystem
             {
                 // no need for a depth buffer
                 cameraTextureDescriptor.depthBufferBits = 0;
+#if UNITY_2022_1_OR_NEWER
+                cameraTextureDescriptor.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+#endif
                 // Half resolution
                 cameraTextureDescriptor.width /= 2;
                 cameraTextureDescriptor.height /= 2;
                 // default format TODO research usefulness of HDR format
                 cameraTextureDescriptor.colorFormat = RenderTextureFormat.Default;
                 // get a temp RT for rendering into
+#if UNITY_2022_1_OR_NEWER
+                if (m_WaterFX == null || !m_WaterFXDescriptor.Equals(cameraTextureDescriptor))
+                {
+                    m_WaterFX?.Release();
+                    m_WaterFX = RTHandles.Alloc(cameraTextureDescriptor, FilterMode.Bilinear, name: k_WaterFXMapName);
+                    m_WaterFXDescriptor = cameraTextureDescriptor;
+                }
+                ConfigureTarget(m_WaterFX);
+                cmd.SetGlobalTexture(k_WaterFXMapId, m_WaterFX.nameID);
+#else
                 cmd.GetTemporaryRT(m_WaterFX.id, cameraTextureDescriptor, FilterMode.Bilinear);
                 ConfigureTarget(m_WaterFX.Identifier());
+#endif
                 // clear the screen with a specific color for the packed data
                 ConfigureClear(ClearFlag.Color, m_ClearColor);
             }
@@ -61,10 +94,63 @@ namespace WaterSystem
                 CommandBufferPool.Release(cmd);
             }
 
+#if UNITY_6000_0_OR_NEWER
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+                UniversalRenderingData renderingData = frameData.Get<UniversalRenderingData>();
+                UniversalLightData lightData = frameData.Get<UniversalLightData>();
+
+                RenderTextureDescriptor descriptor = cameraData.cameraTargetDescriptor;
+                descriptor.depthBufferBits = 0;
+                descriptor.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+                descriptor.width /= 2;
+                descriptor.height /= 2;
+                descriptor.colorFormat = RenderTextureFormat.Default;
+
+                var waterFXMap = UniversalRenderer.CreateRenderGraphTexture(renderGraph, descriptor, k_WaterFXMapName, true,
+                    FilterMode.Bilinear);
+
+                using (var builder = renderGraph.AddRasterRenderPass<PassData>(k_RenderWaterFXTag, out var passData,
+                           m_WaterFX_Profile))
+                {
+                    var drawSettings = RenderingUtils.CreateDrawingSettings(m_WaterFXShaderTag, renderingData, cameraData,
+                        lightData, SortingCriteria.CommonTransparent);
+                    var rendererListParams = new RendererListParams(renderingData.cullResults, drawSettings,
+                        m_FilteringSettings);
+
+                    passData.rendererListHandle = renderGraph.CreateRendererList(rendererListParams);
+
+                    if (!passData.rendererListHandle.IsValid())
+                        return;
+
+                    builder.UseRendererList(passData.rendererListHandle);
+                    builder.SetRenderAttachment(waterFXMap, 0, AccessFlags.Write);
+                    builder.SetGlobalTextureAfterPass(waterFXMap, k_WaterFXMapId);
+
+                    builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
+                    {
+                        context.cmd.ClearRenderTarget(false, true, m_ClearColor);
+                        context.cmd.DrawRendererList(data.rendererListHandle);
+                    });
+                }
+            }
+#endif
+
             public override void OnCameraCleanup(CommandBuffer cmd) 
             {
+#if !UNITY_2022_1_OR_NEWER
                 // since the texture is used within the single cameras use we need to cleanup the RT afterwards
                 cmd.ReleaseTemporaryRT(m_WaterFX.id);
+#endif
+            }
+
+            public void Dispose()
+            {
+#if UNITY_2022_1_OR_NEWER
+                m_WaterFX?.Release();
+                m_WaterFX = null;
+#endif
             }
         }
 
@@ -78,6 +164,15 @@ namespace WaterSystem
             private ProfilingSampler m_WaterCaustics_Profile = new ProfilingSampler(k_RenderWaterCausticsTag);
             public Material WaterCausticMaterial;
             private static Mesh m_mesh;
+
+#if UNITY_6000_0_OR_NEWER
+            class PassData
+            {
+                public Material material;
+                public Matrix4x4 mainLightMatrix;
+                public Matrix4x4 drawMatrix;
+            }
+#endif
 
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
             {
@@ -110,6 +205,46 @@ namespace WaterSystem
                 context.ExecuteCommandBuffer(cmd);
                 CommandBufferPool.Release(cmd);
             }
+
+#if UNITY_6000_0_OR_NEWER
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+                var cam = cameraData.camera;
+                if (cam.cameraType == CameraType.Preview || !WaterCausticMaterial)
+                    return;
+
+                if (!m_mesh)
+                    m_mesh = GenerateCausticsMesh(1000f);
+
+                UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
+                if (!resourceData.activeColorTexture.IsValid() || !resourceData.activeDepthTexture.IsValid())
+                    return;
+
+                using (var builder = renderGraph.AddRasterRenderPass<PassData>(k_RenderWaterCausticsTag, out var passData,
+                           m_WaterCaustics_Profile))
+                {
+                    passData.material = WaterCausticMaterial;
+                    passData.mainLightMatrix = RenderSettings.sun != null
+                        ? RenderSettings.sun.transform.localToWorldMatrix
+                        : Matrix4x4.TRS(Vector3.zero, Quaternion.Euler(-45f, 45f, 0f), Vector3.one);
+
+                    var position = cam.transform.position;
+                    position.y = 0;
+                    passData.drawMatrix = Matrix4x4.TRS(position, Quaternion.identity, Vector3.one);
+
+                    builder.SetRenderAttachment(resourceData.activeColorTexture, 0, AccessFlags.Write);
+                    builder.SetRenderAttachmentDepth(resourceData.activeDepthTexture, AccessFlags.Write);
+                    builder.AllowGlobalStateModification(true);
+
+                    builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
+                    {
+                        data.material.SetMatrix("_MainLightDir", data.mainLightMatrix);
+                        context.cmd.DrawMesh(m_mesh, data.drawMatrix, data.material, 0, 0);
+                    });
+                }
+            }
+#endif
         }
 
         #endregion
@@ -182,6 +317,11 @@ namespace WaterSystem
         {
             renderer.EnqueuePass(m_WaterFxPass);
             renderer.EnqueuePass(m_CausticsPass);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            m_WaterFxPass?.Dispose();
         }
 
         /// <summary>
