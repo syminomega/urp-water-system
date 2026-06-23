@@ -4,5 +4,5 @@ This is a modified version of `com.verasl.water-system` from unity official [Boa
 
 Here are some of the changes:
 
-* Update to unity 2022.2
+* Update to unity 2022.3
 * Add capability for URP 14.0.6 and above
