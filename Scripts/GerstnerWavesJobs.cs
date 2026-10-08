@@ -3,6 +3,11 @@ using UnityEngine;
 using Unity.Jobs;
 using Unity.Burst;
 using Unity.Mathematics;
+#if UNITY_6000_5_OR_NEWER
+using BuoyancyObjectId = UnityEngine.EntityId;
+#else
+using BuoyancyObjectId = System.Int32;
+#endif
 using Unity.Collections;
 using UnityEngine.Rendering.Universal;
 using WaterSystem.Data;
@@ -27,7 +32,7 @@ namespace WaterSystem
         private static NativeArray<float3> _wavePos;
         private static NativeArray<float3> _waveNormal;
         private static JobHandle _waterHeightHandle;
-        static readonly Dictionary<int, int2> Registry = new Dictionary<int, int2>();
+        static readonly Dictionary<BuoyancyObjectId, int2> Registry = new Dictionary<BuoyancyObjectId, int2>();
 
         public static void Init()
         {
@@ -61,17 +66,23 @@ namespace WaterSystem
             _waveNormal.Dispose();
         }
 
-        public static void UpdateSamplePoints(ref NativeArray<float3> samplePoints, int guid)
+        public static void UpdateSamplePoints(ref NativeArray<float3> samplePoints, BuoyancyObjectId guid)
         {
             CompleteJobs();
 
             if (Registry.TryGetValue(guid, out var offsets))
             {
-                for (var i = offsets.x; i < offsets.y; i++) _positions[i] = samplePoints[i - offsets.x];
+                for (var index = offsets.x; index < offsets.y; index++)
+                {
+                    _positions[index] = samplePoints[index - offsets.x];
+                }
             }
             else
             {
-                if (_positionCount + samplePoints.Length >= _positions.Length) return;
+                if (_positionCount + samplePoints.Length >= _positions.Length)
+                {
+                    return;
+                }
                 
                 offsets = new int2(_positionCount, _positionCount + samplePoints.Length);
                 Registry.Add(guid, offsets);
@@ -79,13 +90,18 @@ namespace WaterSystem
             }
         }
 
-        public static void GetData(int guid, ref float3[] outPos, ref float3[] outNorm)
+        public static void GetData(BuoyancyObjectId guid, ref float3[] outPos, ref float3[] outNorm)
         {
-            if (!Registry.TryGetValue(guid, out var offsets)) return;
+            if (!Registry.TryGetValue(guid, out var offsets))
+            {
+                return;
+            }
             
             _wavePos.Slice(offsets.x, offsets.y - offsets.x).CopyTo(outPos);
             if(outNorm != null)
+            {
                 _waveNormal.Slice(offsets.x, offsets.y - offsets.x).CopyTo(outNorm);
+            }
         }
 
         // Height jobs for the next frame
