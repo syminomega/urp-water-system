@@ -1,8 +1,12 @@
 # URP Water System
 
-This is a modified version of `com.verasl.water-system` from unity official [BoatAttack](https://github.com/Unity-Technologies/BoatAttack) project.
+This is a modified version of `com.verasl.water-system` from Unity's official [BoatAttack](https://github.com/Unity-Technologies/BoatAttack) project.
 
-Here are some of the changes:
+## Differences from the original fork
 
-* Update to unity 2022.3
-* Add capability for URP 14.0.6 and above
+- Add Unity 6 / URP 17 Render Graph support for water effects and caustics, retaining the legacy rendering path.
+- Improve Water FX texture lifetime management with RTHandles.
+- Update water shader APIs and isolate the water depth camera from URP volumes and post-processing.
+- Fix Unity 6000.6 compatibility, including removed render pass APIs and full `EntityId` support for buoyancy jobs.
+
+See [CHANGELOG.md](CHANGELOG.md) for the three compatibility milestones.

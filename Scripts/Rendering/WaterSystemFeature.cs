@@ -21,11 +21,13 @@ namespace WaterSystem
             private readonly ShaderTagId m_WaterFXShaderTag = new ShaderTagId("WaterFX");
             private readonly Color m_ClearColor = new Color(0.0f, 0.5f, 0.5f, 0.5f); //r = foam mask, g = normal.x, b = normal.z, a = displacement
             private FilteringSettings m_FilteringSettings;
+#if !UNITY_6000_4_OR_NEWER
 #if UNITY_2022_1_OR_NEWER
             private RTHandle m_WaterFX;
             private RenderTextureDescriptor m_WaterFXDescriptor;
 #else
             private RenderTargetHandle m_WaterFX = RenderTargetHandle.CameraTarget;
+#endif
 #endif
 
 #if UNITY_6000_0_OR_NEWER
@@ -44,6 +46,7 @@ namespace WaterSystem
                 m_FilteringSettings = new FilteringSettings(RenderQueueRange.transparent);
             }
 
+#if !UNITY_6000_4_OR_NEWER
             // Calling Configure since we are wanting to render into a RenderTexture and control cleat
             public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
             {
@@ -93,6 +96,7 @@ namespace WaterSystem
                 context.ExecuteCommandBuffer(cmd);
                 CommandBufferPool.Release(cmd);
             }
+#endif
 
 #if UNITY_6000_0_OR_NEWER
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -122,7 +126,9 @@ namespace WaterSystem
                     passData.rendererListHandle = renderGraph.CreateRendererList(rendererListParams);
 
                     if (!passData.rendererListHandle.IsValid())
+                    {
                         return;
+                    }
 
                     builder.UseRendererList(passData.rendererListHandle);
                     builder.SetRenderAttachment(waterFXMap, 0, AccessFlags.Write);
@@ -137,17 +143,19 @@ namespace WaterSystem
             }
 #endif
 
-            public override void OnCameraCleanup(CommandBuffer cmd) 
+#if !UNITY_6000_4_OR_NEWER
+            public override void OnCameraCleanup(CommandBuffer cmd)
             {
 #if !UNITY_2022_1_OR_NEWER
                 // since the texture is used within the single cameras use we need to cleanup the RT afterwards
                 cmd.ReleaseTemporaryRT(m_WaterFX.id);
 #endif
             }
+#endif
 
             public void Dispose()
             {
-#if UNITY_2022_1_OR_NEWER
+#if UNITY_2022_1_OR_NEWER && !UNITY_6000_4_OR_NEWER
                 m_WaterFX?.Release();
                 m_WaterFX = null;
 #endif
@@ -174,12 +182,15 @@ namespace WaterSystem
             }
 #endif
 
+#if !UNITY_6000_4_OR_NEWER
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
             {
                 var cam = renderingData.cameraData.camera;
                 // Stop the pass rendering in the preview or material missing
                 if (cam.cameraType == CameraType.Preview || !WaterCausticMaterial)
+                {
                     return;
+                }
 
                 CommandBuffer cmd = CommandBufferPool.Get();
                 using (new ProfilingScope(cmd, m_WaterCaustics_Profile))
@@ -192,7 +203,9 @@ namespace WaterSystem
                 
                     // Create mesh if needed
                     if (!m_mesh)
+                    {
                         m_mesh = GenerateCausticsMesh(1000f);
+                    }
 
                     // Create the matrix to position the caustics mesh.
                     var position = cam.transform.position;
@@ -205,6 +218,7 @@ namespace WaterSystem
                 context.ExecuteCommandBuffer(cmd);
                 CommandBufferPool.Release(cmd);
             }
+#endif
 
 #if UNITY_6000_0_OR_NEWER
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -212,14 +226,20 @@ namespace WaterSystem
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
                 var cam = cameraData.camera;
                 if (cam.cameraType == CameraType.Preview || !WaterCausticMaterial)
+                {
                     return;
+                }
 
                 if (!m_mesh)
+                {
                     m_mesh = GenerateCausticsMesh(1000f);
+                }
 
                 UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
                 if (!resourceData.activeColorTexture.IsValid() || !resourceData.activeDepthTexture.IsValid())
+                {
                     return;
+                }
 
                 using (var builder = renderGraph.AddRasterRenderPass<PassData>(k_RenderWaterCausticsTag, out var passData,
                            m_WaterCaustics_Profile))
@@ -272,7 +292,10 @@ namespace WaterSystem
             m_CausticsPass = new WaterCausticsPass();
 
             causticShader = causticShader ? causticShader : Shader.Find("Hidden/BoatAttack/Caustics");
-            if (causticShader == null) return;
+            if (causticShader == null)
+            {
+                return;
+            }
             if (_causticMaterial)
             {
                 DestroyImmediate(_causticMaterial);
@@ -292,14 +315,19 @@ namespace WaterSystem
             switch (settings.debug)
             {
                 case WaterSystemSettings.DebugMode.Caustics:
+                {
                     _causticMaterial.SetFloat(SrcBlend, 1f);
                     _causticMaterial.SetFloat(DstBlend, 0f);
                     _causticMaterial.EnableKeyword("_DEBUG");
                     m_CausticsPass.renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
                     break;
+                }
                 case WaterSystemSettings.DebugMode.WaterEffects:
+                {
                     break;
+                }
                 case WaterSystemSettings.DebugMode.Disabled:
+                {
                     // Caustics
                     _causticMaterial.SetFloat(SrcBlend, 2f);
                     _causticMaterial.SetFloat(DstBlend, 0f);
@@ -307,6 +335,7 @@ namespace WaterSystem
                     m_CausticsPass.renderPassEvent = RenderPassEvent.AfterRenderingSkybox + 1;
                     // WaterEffects
                     break;
+                }
             }
 
             _causticMaterial.SetFloat(Size, settings.causticScale);
